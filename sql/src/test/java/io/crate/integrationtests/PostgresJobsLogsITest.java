@@ -22,8 +22,10 @@
 
 package io.crate.integrationtests;
 
+import com.carrotsearch.randomizedtesting.annotations.Seed;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.test.ESIntegTestCase;
+import org.elasticsearch.test.junit.annotations.TestLogging;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -37,6 +39,7 @@ import java.util.UUID;
 import static org.hamcrest.core.Is.is;
 
 @ESIntegTestCase.ClusterScope(numDataNodes = 1, numClientNodes = 0, supportsDedicatedMasters = false)
+@Seed("803DF9EFB6E5EFB2")
 public class PostgresJobsLogsITest extends SQLTransportIntegrationTest {
 
     private static final String JDBC_POSTGRESQL_URL = "jdbc:crate://127.0.0.1:4244/";
@@ -130,6 +133,7 @@ public class PostgresJobsLogsITest extends SQLTransportIntegrationTest {
     }
 
     @Test
+    @TestLogging("io.crate:TRACE,org.elasticsearch:TRACE")
     public void testBatchOperationStatsTableFailure() throws Exception {
         try (Connection conn = DriverManager.getConnection(JDBC_POSTGRESQL_URL)) {
             conn.setAutoCommit(true);
