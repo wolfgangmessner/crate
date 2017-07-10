@@ -88,4 +88,41 @@ class TableFunctionITest extends SQLTransportIntegrationTest {
         execute("select col1 from unnest([1, 2]) where col1 = 2")
         assert printedTable(response.rows()) == "2\n"
     }
+
+
+
+
+    @Test
+    public void testSelectFromGenerateSeries() throws Exception {
+        execute("select * from generate_series(0, 10, 2)")
+        assert response.rowCount() == 6L
+        assert printedTable(response.rows()) == "" +
+                "0\n" +
+                "2\n" +
+                "4\n" +
+                "6\n" +
+                "8\n" +
+                "10\n"
+    }
+
+    @Test
+    public void testSelectFromGenerateSeriesWithOrderByAndLimit() throws Exception {
+        execute("select * from generate_series(0, 10, 2) order by generate_series desc limit 1")
+        assert response.rowCount() == 1L
+        assert printedTable(response.rows()) == "10\n"
+    }
+
+    @Test
+    public void testGlobalAggregationFromGenerateSeries() throws Exception {
+        assert execute("select max(generate_series) from generate_series(0, 99)").rows()[0][0] == 99;
+    }
+
+    @Test
+    public void testJoinGenerateSeriesWithTable() throws Exception {
+        execute("create table t (id int primary key)")
+        ensureYellow()
+        execute("insert into t (id) values (25)");
+        execute("refresh table t");
+        assert printedTable(execute("select * from generate_series(0,50,5) inner join t on t.id = generate_series").rows()) == "25| 25\n"
+    }
 }
