@@ -35,8 +35,9 @@ class NodeRestUrlExpression implements ReferenceImplementation<BytesRef> {
 
     @Override
     public BytesRef value() {
-        String val =
-            clusterService.localNode() != null ? clusterService.localNode().getAttributes().get("http_address") : null;
+        String val = clusterService.localNode() != null ?
+            clusterService.localNode().getAttributes().get("http_address") :
+            null;
         return val != null ? new BytesRef(val) : null;
     }
 }

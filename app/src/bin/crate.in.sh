@@ -9,7 +9,7 @@ EOF
     exit 1
 fi
 
-CRATE_CLASSPATH=$CRATE_HOME/lib/crate-app-@version@.jar:$CRATE_HOME/lib/*
+CRATE_CLASSPATH=$CRATE_HOME/lib/main/crate-app-@version@.jar:$CRATE_HOME/lib/*
 CRATE_CLASSPATH=${CRATE_CLASSPATH}:$CRATE_HOME/lib/enterprise/*:$CRATE_HOME/lib/sigar/*
 
 if [ "x$CRATE_MIN_MEM" = "x" ]; then

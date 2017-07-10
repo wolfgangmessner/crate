@@ -353,7 +353,7 @@ distributions {
                 exclude 'es.jar'
                 exclude 'es-*.jar'
             }
-            into("lib") {
+            into("lib/main") {
                 from jar
             }
             into("lib/enterprise") {
