@@ -45,7 +45,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
-import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -61,10 +60,12 @@ public class ShardDMLExecutor<TReq extends ShardRequest<TReq, TItem>, TItem exte
 
     private final int bulkSize;
     private final ScheduledExecutorService scheduler;
+    private final CollectExpression<Row, ?> uidExpression;
+    private final NodeJobsCounter nodeJobsCounter;
+    private final Function<String, TItem> itemFactory;
+    private final BiConsumer<TReq, ActionListener<ShardResponse>> operation;
     private final BitSet responses;
-    private final Consumer<Row> rowConsumer;
     private final BooleanSupplier shouldPause;
-    private final Function<Boolean, CompletableFuture<BitSet>> execute;
     private final String localNodeId;
     private final CompletableFuture<Void> executionFuture = new CompletableFuture<>();
 
@@ -81,23 +82,45 @@ public class ShardDMLExecutor<TReq extends ShardRequest<TReq, TItem>, TItem exte
                             BiConsumer<TReq, ActionListener<ShardResponse>> transportAction) {
         this.bulkSize = bulkSize;
         this.scheduler = scheduler;
+        this.uidExpression = uidExpression;
+        this.nodeJobsCounter = nodeJobsCounter;
+        this.itemFactory = itemFactory;
+        this.operation = transportAction;
         this.responses = new BitSet();
         this.currentRequest = requestFactory.get();
         this.localNodeId = getLocalNodeId(clusterService);
-
-        this.rowConsumer = createRowConsumer(uidExpression, itemFactory);
-        this.shouldPause = () ->
-            nodeJobsCounter.getInProgressJobsForNode(localNodeId) >= MAX_NODE_CONCURRENT_OPERATIONS;
-        this.execute = createExecuteFunction(scheduler, nodeJobsCounter, requestFactory, transportAction);
+        this.shouldPause = () -> nodeJobsCounter.getInProgressJobsForNode(localNodeId) >= MAX_NODE_CONCURRENT_OPERATIONS;
     }
 
-    private Consumer<Row> createRowConsumer(CollectExpression<Row, ?> uidExpression,
-                                            Function<String, TItem> itemFactory) {
-        return row -> {
-            numItems++;
-            uidExpression.setNextRow(row);
-            currentRequest.add(numItems, itemFactory.apply(((BytesRef) uidExpression.value()).utf8ToString()));
-        };
+    private void addRowToRequest(Row row) {
+        numItems++;
+        uidExpression.setNextRow(row);
+        currentRequest.add(numItems, itemFactory.apply(((BytesRef) uidExpression.value()).utf8ToString()));
+    }
+
+    private CompletableFuture<BitSet> executeBatch(boolean isLastBatch) {
+        /* This optimizes cases like "update t set x = ? where part_of_pk = ?"
+         * This runs the collect on *all* shards but only a small subset has any matches
+         * So this case can happen often.
+         */
+        if (currentRequest.items().isEmpty()) {
+            return CompletableFuture.completedFuture(responses);
+        }
+        FutureActionListener<ShardResponse, BitSet> listener = newListener();
+        nodeJobsCounter.increment(localNodeId);
+        CompletableFuture<BitSet> result = listener.whenComplete(nodeJobsCounter.decrement(localNodeId));
+
+        operation.accept(currentRequest, withRetry(listener));
+        return result;
+    }
+
+    private RetryListener<ShardResponse> withRetry(TReq request, ActionListener<ShardResponse> listener) {
+        return new RetryListener<>(
+            scheduler,
+            l -> operation.accept(request, l),
+            listener,
+            BACKOFF_POLICY
+        );
     }
 
     private Function<Boolean, CompletableFuture<BitSet>> createExecuteFunction(ScheduledExecutorService scheduler,
@@ -105,10 +128,6 @@ public class ShardDMLExecutor<TReq extends ShardRequest<TReq, TItem>, TItem exte
                                                                                Supplier<TReq> requestFactory,
                                                                                BiConsumer<TReq, ActionListener<ShardResponse>> transportAction) {
         return isLastBatch -> {
-            /* This optimizes cases like "update t set x = ? where part_of_pk = ?"
-             * This runs the collect on *all* shards but only a small subset has any matches
-             * So this case can happen often.
-             */
             if (currentRequest.items().isEmpty()) {
                 return CompletableFuture.completedFuture(responses);
             }
